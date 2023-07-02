@@ -1,0 +1,81 @@
+import boto3
+from datetime import datetime, timedelta
+
+import os
+os.environ['AWS_DEFAULT_REGION'] = 'ap-south-1'
+os.environ['AWS_ACCESS_KEY_ID'] = 'AKIATM3ZJ4VERNQ2N4RJ'
+os.environ['AWS_SECRET_ACCESS_KEY'] = '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'
+
+def get_scheduled_actions(asg_name):
+    client = boto3.client('autoscaling')
+    response = client.describe_scheduled_actions(AutoScalingGroupName=asg_name)
+
+    return response['ScheduledUpdateGroupActions']
+
+def get_next_scheduled_action(asg_name):
+    actions = get_scheduled_actions(asg_name)
+    if len(actions) == 0:
+        return None
+
+    actions.sort(key=lambda x: x['StartTime'])
+    next_action = actions[0]
+    return next_action
+
+def calculate_time_elapsed(start_time):
+    current_time = datetime.now()
+    elapsed_time = current_time - start_time
+    hours, remainder = divmod(elapsed_time.total_seconds(), 3600)
+    minutes, seconds = divmod(remainder, 60)
+    return f"{int(hours):02d}:{int(minutes):02d}:{int(seconds):02d}"
+
+def get_instances_launched_terminated(asg_name):
+    client = boto3.client('cloudwatch')
+    end_time = datetime.now()
+    start_time = end_time.replace(hour=0, minute=0, second=0) - timedelta(days=1)
+
+    response = client.get_metric_statistics(
+        Namespace='AWS/EC2',
+        MetricName='GroupInServiceInstances',
+        Dimensions=[
+            {
+                'Name': 'AutoScalingGroupName',
+                'Value': asg_name
+            },
+        ],
+        StartTime=start_time,
+        EndTime=end_time,
+        Period=86400,
+        Statistics=['Sum']
+    )
+
+    if len(response['Datapoints']) > 0:
+        datapoint = response['Datapoints'][0]
+        instances_launched = datapoint['Sum']
+        instances_terminated = instances_launched - get_instances_running(asg_name)
+        return instances_launched, instances_terminated
+
+    return 0, 0
+
+def get_instances_running(asg_name):
+    client = boto3.client('autoscaling')
+    response = client.describe_auto_scaling_groups(AutoScalingGroupNames=[asg_name])
+    instances_running = 0
+
+    if len(response['AutoScalingGroups']) > 0:
+        instances_running = response['AutoScalingGroups'][0]['Instances'][0]['DesiredCapacity']
+
+    return instances_running
+
+# Provide your Auto Scaling Group name here
+asg_name = 'lv-test-cpu'
+
+next_action = get_next_scheduled_action(asg_name)
+if next_action is not None:
+    start_time = next_action['StartTime']
+    time_elapsed = calculate_time_elapsed(start_time)
+    print(f"Next scheduled action: {next_action['ScheduledActionName']}")
+    print(f"Time elapsed from current time: {time_elapsed}")
+
+instances_launched, instances_terminated = get_instances_launched_terminated(asg_name)
+print(f"Total instances launched today: {instances_launched}")
+print(f"Total instances terminated today: {instances_terminated}")
