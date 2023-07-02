@@ -1,0 +1,97 @@
+import boto3
+from datetime import datetime
+
+import os
+os.environ['AWS_DEFAULT_REGION'] = 'ap-south-1'
+os.environ['AWS_ACCESS_KEY_ID'] = 'AKIATM3ZJ4VERNQ2N4RJ'
+os.environ['AWS_SECRET_ACCESS_KEY'] = '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'
+
+
+
+def check_asg_instances(asg_name):
+    autoscaling_client = boto3.client('autoscaling')
+    ec2_client = boto3.client('ec2')
+    response = autoscaling_client.describe_auto_scaling_groups(AutoScalingGroupNames=[asg_name])
+
+    if len(response['AutoScalingGroups']) == 0:
+        print(f"No Auto Scaling Group found with name: {asg_name}")
+        return
+    
+    asg_details = response['AutoScalingGroups'][0]
+    desired_capacity = asg_details['DesiredCapacity']
+    running_instances = asg_details['Instances']
+    
+    if desired_capacity != len(running_instances):
+        print(f"Desired capacity ({desired_capacity}) does not match the number of running instances ({len(running_instances)})")
+    
+    if len(running_instances) > 1:
+        availability_zones = set()
+        security_groups = set()
+        image_ids = set()
+        vpc_ids = set()
+        
+        for instance in running_instances:
+            instance_id = instance['InstanceId']
+            instance_details = ec2_client.describe_instances(InstanceIds=[instance_id])
+            
+            if len(instance_details['Reservations']) > 0 and len(instance_details['Reservations'][0]['Instances']) > 0:
+                instance_data = instance_details['Reservations'][0]['Instances'][0]
+                availability_zones.add(instance_data['Placement']['AvailabilityZone'])
+                security_groups.add(instance_data['SecurityGroups'][0]['GroupId'])
+                image_ids.add(instance_data['ImageId'])
+                vpc_ids.add(instance_data['VpcId'])
+        
+        if len(availability_zones) < 2:
+            print("Instances in Auto Scaling Group are not distributed across multiple availability zones")
+        
+        if len(security_groups) > 1:
+            print("Instances in Auto Scaling Group have different security groups")
+        
+        if len(image_ids) > 1:
+            print("Instances in Auto Scaling Group have different image IDs")
+        
+        if len(vpc_ids) > 1:
+            print("Instances in Auto Scaling Group have different VPC IDs")
+
+def get_longest_uptime_instance(asg_name):
+    autoscaling_client = boto3.client('autoscaling')
+    response = autoscaling_client.describe_auto_scaling_groups(AutoScalingGroupNames=[asg_name])
+    
+    if len(response['AutoScalingGroups']) == 0:
+        print(f"No Auto Scaling Group found with name: {asg_name}")
+        return
+    
+    instances = response['AutoScalingGroups'][0]['Instances']
+    
+    if len(instances) == 0:
+        print(f"No instances running in Auto Scaling Group: {asg_name}")
+        return
+    
+    ec2_client = boto3.client('ec2')
+    longest_uptime = None
+    longest_uptime_instance = None
+    
+    for instance in instances:
+        instance_id = instance['InstanceId']
+        instance_details = ec2_client.describe_instances(InstanceIds=[instance_id])
+        
+        if len(instance_details['Reservations']) > 0 and len(instance_details['Reservations'][0]['Instances']) > 0:
+            instance_data = instance_details['Reservations'][0]['Instances'][0]
+            launch_time = instance_data['LaunchTime']
+            uptime = datetime.now(launch_time.tzinfo) - launch_time
+            
+            if longest_uptime is None or uptime > longest_uptime:
+                longest_uptime = uptime
+                longest_uptime_instance = instance_data
+    
+    return longest_uptime_instance
+
+# Provide your Auto Scaling Group name here
+asg_name = 'lv-test-cpu'
+
+check_asg_instances(asg_name)
+longest_uptime_instance = get_longest_uptime_instance(asg_name)
+if longest_uptime_instance is not None:
+    print("Longest running instance details:")
+    print(f"Instance ID: {longest_uptime_instance['InstanceId']}")
+    print(f"Uptime: {datetime.now(longest_uptime_instance['LaunchTime'].tzinfo) - longest_uptime_instance['LaunchTime']}")
