@@ -3,8 +3,8 @@ from datetime import datetime
 
 import os
 os.environ['AWS_DEFAULT_REGION'] = 'ap-south-1'
-os.environ['AWS_ACCESS_KEY_ID'] = 'AKIATM3ZJ4VERNQ2N4RJ'
-os.environ['AWS_SECRET_ACCESS_KEY'] = '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'
+os.environ['AWS_ACCESS_KEY_ID'] = ''
+os.environ['AWS_SECRET_ACCESS_KEY'] = ''
 
 
 
